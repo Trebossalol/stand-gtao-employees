@@ -1,0 +1,394 @@
+--[[
+    Name            Employees (Stand-GTAO)
+    Author          Trebossa
+    Version         1.0.0
+    Description     Main script file
+]]
+
+-------------------------------------
+-- Constants
+-------------------------------------
+local script_name = "Employees"
+local menu_root = menu.my_root()
+local scriptdir <const> = filesystem.scripts_dir()
+local required <const> = {
+    "lib/Employees/functions.pluto",
+}
+
+-------------------------------------
+-- Initalization
+-------------------------------------
+util.toast("Initializing Employees")
+util.require_natives(1663599433)
+DecorFlag_isEnemyVehicle = 1 << 1
+for _, file in ipairs(required) do
+	assert(filesystem.exists(scriptdir .. file), "required file not found: " .. file)
+end
+require "Employees.functions"
+
+-------------------------------------
+-- Root refs
+-------------------------------------
+menu.action(menu_root, "Test", {}, "", 
+    function()
+    end
+)
+players.on_join(function(pid)
+    menu.divider(menu.player_root(pid), "Employees")
+end
+)
+
+-------------------------------------
+-- Player refs [Helicopter]
+-------------------------------------
+players.on_join(function(pid)
+    -------------------------------------
+    -- Constants
+    -------------------------------------
+    local heliOptions = { 
+        "savage",
+        "annihilator2",
+        "valkyrie" 
+    }
+    local spawnOptions = {
+        "Target",
+        "Self",
+        "Waypoint"
+    }
+    local pedOptions = {
+        "s_m_y_blackops_01",
+        "s_m_y_swat_01",
+        "csb_mweather",
+    }
+    local pedWeaponOptions = {
+        --
+        "WEAPON_MG",
+        "WEAPON_COMBATMG_MK2",
+        --
+        "WEAPON_APPISTOL",
+        "WEAPON_PISTOL",
+        --
+        "WEAPON_HEAVYSNIPER_MK2",
+        "WEAPON_HEAVYSHOTGUN",
+        --
+        "WEAPON_HEAVYRIFLE",
+        "WEAPON_ASSAULTRIFLE_MK2",
+        --
+        "WEAPON_GRENADELAUNCHER",
+        "WEAPON_GRENADELAUNCHER_SMOKE",
+        "WEAPON_RPG",
+        "WEAPON_HOMINGLAUNCHER"
+        --
+    }
+    -- Default Indexes
+    local defaultHeliModel = 1
+    local defaultHeliSpawn = 1
+    local defaultPedModel = 1
+    local defaultPedWeaponModel = 1
+    -- Selectables
+    local heliModel = heliOptions[defaultHeliModel]
+    local heliSpawn = spawnOptions[defaultHeliSpawn]
+    local pedModel = pedOptions[defaultPedModel]
+    local pedWeaponModel = pedWeaponOptions[defaultPedWeaponModel]
+    local heliCount = 1
+    local heliSpawnRandomness = 50
+    local pedAccuracy = 75
+    local isHeliGod = false
+
+    -------------------------------------
+    -- Helper functions
+    -------------------------------------
+    local function spawn_attack_helicopters()
+        local vehicleHash <const> = util.joaat(heliModel)
+        local pedHash <const> = util.joaat(pedModel)
+        --
+        STREAMING.REQUEST_MODEL(vehicleHash)
+        STREAMING.REQUEST_MODEL(pedHash)
+        --
+        local target = PLAYER.GET_PLAYER_PED_SCRIPT_INDEX(pid)
+        local originSpawnPos = get_origin_spawn_pos(heliSpawn, target)
+
+        if originSpawnPos == nil then
+            return util.toast("No spawn position set")
+        end
+
+        set_as_hostile_target(pid)
+
+        -- Spawn helicopters
+        for i = 1, heliCount do
+            -- Instance
+            local spawn_pos = {
+                x = originSpawnPos.x + math.random(-heliSpawnRandomness, heliSpawnRandomness),
+                y = originSpawnPos.y + math.random(-heliSpawnRandomness, heliSpawnRandomness),
+                z = originSpawnPos.z + 50.0 + (i * 5.0)
+            }
+            local heli = VEHICLE.CREATE_VEHICLE(vehicleHash, spawn_pos.x, spawn_pos.y, spawn_pos.z, 0.0, true, true, false)
+            -- Set heli options
+            ENTITY.SET_ENTITY_AS_MISSION_ENTITY(heli, false, true)
+            ENTITY.SET_ENTITY_INVINCIBLE(heli, isHeliGod)
+            VEHICLE.SET_VEHICLE_ENGINE_ON(heli, true, true, true)
+            VEHICLE.SET_HELI_BLADES_FULL_SPEED(heli)
+            create_blip_for_entity(heli, 422, 1, 0.9)
+            set_decor_flag(heli, DecorFlag_isEnemyVehicle)
+            -- Set pilot
+            local pilot = entities.create_ped(29, pedHash, originSpawnPos, CAM.GET_GAMEPLAY_CAM_ROT(0).z)
+            PED.SET_PED_INTO_VEHICLE(pilot, heli, -1)
+            ENTITY.SET_ENTITY_INVINCIBLE(pilot, isHeliGod)
+            PED.SET_PED_KEEP_TASK(pilot, true)
+            TASK.TASK_HELI_MISSION(pilot, heli, 0, target, 0, 0, 0, 23, 40, 40, -1, 0, 10, -1, 0)
+            -- Set passengers
+            for seat = 1, 2 do 
+                local ped = entities.create_ped(29, pedHash, originSpawnPos, CAM.GET_GAMEPLAY_CAM_ROT(0).z)
+                PED.SET_PED_INTO_VEHICLE(ped, heli, seat)
+                WEAPON.GIVE_WEAPON_TO_PED(ped, util.joaat(pedWeaponModel), -1, false, true)
+                PED.SET_PED_COMBAT_ATTRIBUTES(ped, 20, true)
+                ENTITY.SET_ENTITY_INVINCIBLE(ped, isHeliGod)
+                PED.SET_PED_SHOOT_RATE(ped, 1000)
+                PED.SET_PED_ACCURACY(ped, pedAccuracy)
+                set_decor_flag(ped, DecorFlag_isEnemyVehicle)
+                set_as_hostile_employee(ped)
+            end
+            
+        end
+
+        STREAMING.SET_MODEL_AS_NO_LONGER_NEEDED(vehicleHash)
+        STREAMING.SET_MODEL_AS_NO_LONGER_NEEDED(pedHash)
+
+        util.toast("Spawned " .. heliCount .. " helicopter/s")
+    end
+
+    -------------------------------------
+    -- Menu options
+    -------------------------------------
+    local heli_root = menu.list(menu.player_root(pid), "Attack Helicopters", {}, "")
+    
+    menu.action(heli_root, "Spawn", {}, "", 
+        function()
+            spawn_attack_helicopters()
+        end
+    )
+    menu.toggle(heli_root, "God Mode", {}, "Shall the vehicle and employees be invincible?",
+        function(v) isHeliGod = v end
+    )
+    --
+    menu.divider(heli_root, "Vehicle")
+    --
+    menu.list_select(heli_root, "Model", {}, "", heliOptions, defaultHeliModel,
+        function(index) heliModel = heliOptions[index] end
+    )
+    menu.slider(heli_root, "Count", {}, "How many vehicles",
+        1, 10, heliCount, 1,
+        function(value) heliCount = value end
+    )
+    menu.list_select(heli_root, "Spawn Position", {}, "Where to spawn the vehicles?", spawnOptions, defaultHeliSpawn,
+        function(index) heliSpawn = spawnOptions[index] end
+    )
+    menu.slider(heli_root, "Spawn Offset", {}, "Bigger numbers will spread them more",
+        50, 500, heliSpawnRandomness, 25,
+        function(value) heliSpawnRandomness = value end
+    )
+    --  
+    menu.divider(heli_root, "Ped")
+    --
+    menu.list_select(heli_root, "Model", {}, "Ped model", pedOptions, defaultPedModel,
+        function(index) pedModel = pedOptions[index] end
+    )
+    menu.list_select(heli_root, "Weapon", {}, "Ped weapon", pedWeaponOptions, defaultPedWeaponModel,
+        function(index) pedWeaponModel = pedWeaponOptions[index] end
+    )
+    menu.slider(heli_root, "Accuracy", {}, "How accurate the employees are when shooting",
+        1, 100, pedAccuracy, 5,
+        function(value) pedAccuracy = value end
+    )
+    --
+    menu.divider(heli_root, "Misc")
+    --
+    menu.action(heli_root, "Delete All", {}, "Delete *all* vehicles and employees", 
+        function()
+           local count = delete_entities_with_decor_flag()
+            util.toast("Deleted " .. count .. " vehicles")
+        end 
+    )
+end
+)
+
+
+-------------------------------------
+-- Player refs [Vehicles]
+-------------------------------------
+players.on_join(function(pid)
+    -- Constants
+    local vehOptions = {
+        "baller6",
+        "insurgent"
+    }
+    local spawnOptions = {
+        "Target",
+        "Self",
+        "My Waypoint"
+    }
+    local pedOptions = {
+        "s_m_y_blackops_01"
+    }
+    local pedWeaponOptions = {
+        "WEAPON_PISTOL",
+        "WEAPON_SMG"
+    }
+    local vehMissionTypeOptions = {
+        "Cruise"
+    }
+    -- Default Indexes
+    local defaultVehModel = 1
+    local defaultVehSpawn = 1
+    local defaultPedModel = 1
+    local defaultPedWeaponModel = 1
+    local defaultVehMissionType = 1
+    -- Selectables
+    local vehModel = vehOptions[defaultVehModel]
+    local pedModel = pedOptions[defaultPedModel]
+    local vehSpawn = spawnOptions[defaultVehSpawn]
+    local pedWeaponModel = pedWeaponOptions[defaultPedWeaponModel]
+    local vehMissionType = vehMissionTypeOptions[defaultVehMissionType]
+    local vehCount = 1
+    local vehSpawnOffsetMin = 80
+    local vehSpawnOffsetMax = 100
+    local isVehGod = false
+
+    -- Helper functions
+    local function get_veh_origin_spawn_pos(targetPed)
+        if vehSpawn == spawnOptions[1] then
+            return ENTITY.GET_ENTITY_COORDS(targetPed, true)
+        elseif vehSpawn == spawnOptions[2] then
+            return get_player_coords_as_vector3()
+        elseif vehSpawn == spawnOptions[3] then
+            local coords = get_waypoint_coords_as_vector3()
+            if coords == nil then 
+                util.toast("No waypoint set")
+                return nil
+            end
+            return coords
+        else
+            util.toast("Unknown spawnpoint: " .. vehCount)
+            return nil
+        end
+    end
+    local function spawn_attack_vehicles()
+        local vehicleHash <const> = util.joaat(vehModel)
+        local pedHash <const> = util.joaat(pedModel)
+        --
+        STREAMING.REQUEST_MODEL(vehicleHash)
+        STREAMING.REQUEST_MODEL(pedHash)
+        --
+        local target = PLAYER.GET_PLAYER_PED_SCRIPT_INDEX(pid)
+        local originSpawnPos = get_veh_origin_spawn_pos(target)
+
+        if originSpawnPos == nil then
+            return util.toast("No spawn position set")
+        end
+        --
+        --set_as_hostile_enemy(pid)
+
+        -- Spawn Vehicles
+        for i = 1, vehCount do
+            -- Instance
+            local x = originSpawnPos.x + math.random(-vehSpawnOffsetMin, vehSpawnOffsetMax)
+            local y = originSpawnPos.y + math.random(-vehSpawnOffsetMin, vehSpawnOffsetMax)
+            local spawn_pos = {
+                x = x,
+                y = y,
+                z = get_ground_z_at_coords(x, y)
+            }
+            local veh = VEHICLE.CREATE_VEHICLE(vehicleHash, spawn_pos.x, spawn_pos.y, spawn_pos.z, 0.0, true, true, false)
+            -- Set veh options
+            ENTITY.SET_ENTITY_AS_MISSION_ENTITY(veh, false, true)
+            ENTITY.SET_ENTITY_INVINCIBLE(veh, isVehGod)
+            VEHICLE.SET_VEHICLE_ENGINE_ON(veh, true, true, true)
+            create_blip_for_entity(veh, 227, 1, 0.9)
+            set_decor_flag(veh, DecorFlag_isEnemyVehicle)
+            -- Set driver
+            --local driver = entities.create_ped(29, pedHash, originSpawnPos, CAM.GET_GAMEPLAY_CAM_ROT(0).z)
+            --PED.SET_PED_INTO_VEHICLE(driver, veh, -1)
+            --ENTITY.SET_ENTITY_INVINCIBLE(driver, isVehGod)
+            --PED.SET_PED_KEEP_TASK(driver, true)
+            --TASK.TASK_COMBAT_PED(driver, target, 0, 16)
+            -- TASK_VEHICLE_MISSION(driver, vatkr, 0, targets, 9, 150.0, 40.0, -1.0, 0, 10, -1.0, 16)
+            -- Set passengers
+            local seatnum = GET_VEHICLE_MODEL_NUMBER_OF_SEATS(vehicleHash) - 1
+            for seat = 1, seatnum do 
+                util.yield(10)
+                local ped = entities.create_ped(29, pedHash, originSpawnPos, CAM.GET_GAMEPLAY_CAM_ROT(0).z)
+                --PED.SET_PED_INTO_VEHICLE(ped, veh, )
+                --PED.SET_PED_INTO_VEHICLE(ped, veh, seat)
+                --WEAPON.GIVE_WEAPON_TO_PED(ped, util.joaat(pedWeaponModel), -1, false, true)
+				--PED.SET_PED_COMBAT_ATTRIBUTES(ped, 20, true)
+                --ENTITY.SET_ENTITY_INVINCIBLE(ped, isVehGod)
+                --PED.SET_PED_SHOOT_RATE(ped, 1000)
+                --set_decor_flag(ped, DecorFlag_isEnemyVehicle)
+                --set_as_hostile_employee(ped)
+            end
+            
+        end
+		STREAMING.SET_MODEL_AS_NO_LONGER_NEEDED(vehicleHash)
+        STREAMING.SET_MODEL_AS_NO_LONGER_NEEDED(pedHash)
+    end
+    -- End Helper functions
+
+    -- Menu options
+    local veh_root = menu.list(menu.player_root(pid), "Attack Vehicles", {}, "")
+
+    menu.action(veh_root, "Spawn", {}, "",
+        function()
+            spawn_attack_vehicles()
+            util.toast("Spawned " .. vehCount .. " vehicle/s")
+        end
+    )
+    menu.list_select(veh_root, "Vehicle Model", {}, "Vehicle model", vehOptions, defaultVehModel,
+        function(index) vehModel = vehOptions[index] end
+    )
+    menu.list_select(veh_root, "Ped Model", {}, "Ped model", pedOptions, defaultPedModel,
+        function(index) pedModel = pedOptions[index] end
+    )
+    menu.list_select(veh_root, "Weapon Model", {}, "Weapon model", pedWeaponOptions, defaultPedWeaponModel,
+        function(index) pedWeaponModel = pedWeaponOptions[index] end
+    )
+    menu.slider(veh_root, "Count", {}, "How many vehicles",
+        1, 10, vehCount, 1,
+        function(value) vehCount = value end
+    )
+    menu.list_select(veh_root, "Spawn at", {}, "Where to spawn the vehicles?", spawnOptions, defaultVehSpawn,
+        function(index) vehSpawn = spawnOptions[index] end
+    )
+    menu.slider(veh_root, "Spawn offset Min", {}, "",
+        20, 500, vehSpawnOffsetMin, 10,
+        function(value) vehSpawnOffsetMin = value end
+    )
+    menu.slider(veh_root, "Spawn offset Max", {}, "",
+        20, 500, vehSpawnOffsetMax, 10,
+        function(value) vehSpawnOffsetMax = value end
+    )
+    menu.toggle(veh_root, "God Mode", {}, "Shall the vehicle and employees be invincible?",
+        function(v) isVehGod = v end
+    )
+    menu.action(veh_root, "Delete All", {}, "Delete *all* vehicles and employees", 
+        function()
+            local count = delete_entities_with_decor_flag()
+            util.toast("Deleted " .. count .. " vehicles")
+        end 
+    )
+    -- End Menu options
+    end
+)
+
+
+-------------------------------------
+-- Player refs [Waves]
+-------------------------------------
+players.on_join(function(pid)
+    local wave_root = menu.list(menu.player_root(pid), "Attacker Waves", {}, "")
+    end
+)
+
+-------------------------------------
+-- Hooks
+-------------------------------------
+players.dispatch_on_join()
